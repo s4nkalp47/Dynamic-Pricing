@@ -306,5 +306,82 @@ if __name__ == '__main__':
         for algo, name, steps in ABLATION_RUNS:
             train_one(args.data, algo, name, steps)
 
+    if args.experiment_8d:
+        train_8d_experiment(args.data)
+
     print("\n✅ All training runs complete.")
     print("   Next: python evaluate.py --data", args.data)
+
+
+# ---------------------------------------------------------------------------
+# 8D STATE EXPERIMENT  (call directly, not part of main pipeline)
+# ---------------------------------------------------------------------------
+def train_8d_experiment(data_path: str):
+    """
+    Train PPO and DQN with the expanded 8D state space.
+    Uses same hyperparameters as 5D counterparts for fair comparison.
+    Extra features: lead_time, days_until_event, customer_rating
+    """
+    print("\n" + "="*65)
+    print("8D STATE EXPERIMENT: extra booking features")
+    print("="*65)
+
+    def make_env_8d(algo):
+        def _make():
+            env = HotelPricingEnv(
+                data_path,
+                reward_variant='profit_only',
+                state_variant='8d',
+                normalise_reward=True,
+                seed=42,
+            )
+            if algo == 'sac':
+                from train import ContinuousPricingWrapper
+                env = ContinuousPricingWrapper(env)
+            return Monitor(env)
+        return _make
+
+    runs_8d = [
+        ('dqn_vanilla', 'dqn_8d',  300_000),
+        ('ppo',         'ppo_8d',  500_000),
+    ]
+
+    for algo, name, steps in runs_8d:
+        model_dir = f'models/{name}'
+        log_dir   = f'logs/{name}'
+        os.makedirs(model_dir, exist_ok=True)
+
+        train_env = DummyVecEnv([make_env_8d(algo)])
+        eval_env  = DummyVecEnv([make_env_8d(algo)])
+
+        if algo == 'dqn_vanilla':
+            model = _make_dqn(train_env, 5e-4, [256, 256, 128], log_dir)
+        else:
+            model = _make_ppo(train_env, log_dir)
+
+        profit_logger = ProfitLogger()
+        eval_callback = EvalCallback(
+            eval_env,
+            best_model_save_path=model_dir,
+            log_path=log_dir,
+            eval_freq=max(steps // 30, 1000),
+            n_eval_episodes=5,
+            deterministic=True,
+            verbose=0,
+        )
+
+        print(f"\n  Training: {name} ({algo.upper()}, 8D state, {steps:,} steps)")
+        model.learn(
+            total_timesteps=steps,
+            callback=[profit_logger, eval_callback],
+            progress_bar=True,
+            reset_num_timesteps=True,
+            tb_log_name=name,
+        )
+        model.save(f'{model_dir}/final_model')
+        np.save(f'{model_dir}/profit_curve.npy',
+                np.array(profit_logger.step_profits))
+        print(f"  Saved to {model_dir}/")
+
+    print("\n✅ 8D experiment complete.")
+    print("   Next: python evaluate.py --data", data_path, "--include_8d")

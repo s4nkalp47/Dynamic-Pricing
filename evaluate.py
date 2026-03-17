@@ -168,3 +168,43 @@ if __name__ == '__main__':
         evaluate_robustness(args.data, args.episodes)
 
     print("\n✅ Evaluation complete. Outputs in results/")
+
+
+# ---------------------------------------------------------------------------
+# 8D STATE EVALUATION
+# ---------------------------------------------------------------------------
+def evaluate_8d(data_path: str, n_episodes: int, reference_profit: float):
+    print("\n" + "="*65)
+    print("8D STATE EXPERIMENT EVALUATION")
+    print("="*65)
+
+    env_8d = HotelPricingEnv(data_path, reward_variant='profit_only',
+                             state_variant='8d', seed=0)
+
+    agents = {}
+    for display_name, run_name in [('DQN 8D', 'dqn_8d'), ('PPO 8D', 'ppo_8d')]:
+        m = _load_model(run_name)
+        if m is not None:
+            agents[display_name] = m
+
+    if not agents:
+        print("  [SKIP] No 8D models found. Run: python train.py --experiment_8d")
+        return
+
+    # Add baselines for comparison
+    agents['Traditional Opt.'] = TraditionalOptimizer(env_8d)
+
+    results = evaluate_all(env_8d, agents, n_episodes=n_episodes)
+    df      = results_to_dataframe(results, reference='Traditional Opt.')
+    df.to_csv('results/summary_8d.csv', index=False)
+
+    print("\n📋 8D State Results vs 5D:")
+    print(f"  {'Method':<15} {'Mean Profit':>12} {'vs Oracle':>10} {'vs 5D counterpart':>18}")
+    print("  " + "-"*55)
+
+    five_d = {'DQN 8D': reference_profit}  # placeholder, filled below
+    for _, row in df.iterrows():
+        print(f"  {row['Method']:<15} {row['Mean Profit']:>12,.0f} "
+              f"{row['vs Reference (%)']:>9.1f}%")
+
+    print(f"\n  Reference profit (5D baseline): {reference_profit:.0f} INR")
