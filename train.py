@@ -272,6 +272,7 @@ if __name__ == '__main__':
     parser.add_argument('--ppo_sac_only',action='store_true',
                         help='Train PPO and SAC only')
     parser.add_argument('--ablation',    action='store_true')
+    parser.add_argument('--experiment_8d', action='store_true', help='Train DQN and PPO with 8D state')
     args = parser.parse_args()
 
     for d in ['logs', 'models', 'results']:
@@ -305,6 +306,9 @@ if __name__ == '__main__':
         print("="*65)
         for algo, name, steps in ABLATION_RUNS:
             train_one(args.data, algo, name, steps)
+
+    if args.experiment_8d:
+        train_8d_experiment(args.data)
 
     if args.experiment_8d:
         train_8d_experiment(args.data)
