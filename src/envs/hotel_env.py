@@ -1,10 +1,14 @@
 """
 hotel_env.py — Clean Hotel Pricing Environment
 
-Fixes in this version:
-  - normalise_reward=True divides reward by running std (stabilises gradients)
-  - state_variant='8d' adds lead_time, days_until_event, customer_rating
-  - reward_variant='profit_with_occ_cap' adds occupancy penalty (ablation only)
+Performance fix: all dataset columns preloaded as numpy arrays.
+Eliminates pandas .iloc row lookup overhead which was bottlenecking
+CPU→GPU throughput (GPU was sitting at 25-48% utilization).
+
+Other features:
+  - normalise_reward=True: divides reward by running std (Welford algorithm)
+  - state_variant='8d': adds lead_time, days_until_event, customer_rating
+  - reward_variant='profit_with_occ_cap': occupancy penalty (ablation only)
 """
 
 import gymnasium as gym
@@ -23,13 +27,13 @@ class HotelPricingEnv(gym.Env):
     def __init__(
         self,
         data_path: str,
-        reward_variant: str  = 'profit_only',
-        state_variant: str   = '5d',
-        normalise_reward: bool = False,   # divide reward by running std
-        occ_cap: float        = 0.85,
+        reward_variant: str    = 'profit_only',
+        state_variant: str     = '5d',
+        normalise_reward: bool = False,
+        occ_cap: float         = 0.85,
         occ_penalty_weight: float = 0.1,
-        episode_length: int   = 1000,
-        seed: Optional[int]   = None,
+        episode_length: int    = 1000,
+        seed: Optional[int]    = None,
     ):
         super().__init__()
 
@@ -44,29 +48,46 @@ class HotelPricingEnv(gym.Env):
         self.normalise_reward = normalise_reward
         self._validate_data()
 
-        self.episode_length  = min(episode_length, len(self.df) - 1)
-        self.occ_cap         = occ_cap
-        n_obs                = 5 if state_variant == '5d' else 8
+        self.episode_length = min(episode_length, len(self.df) - 1)
+        self.occ_cap        = occ_cap
+        n_obs               = 5 if state_variant == '5d' else 8
 
-        self.observation_space  = spaces.Box(low=0.0, high=1.0,
-                                             shape=(n_obs,), dtype=np.float32)
-        self.n_actions          = 25
-        self.price_multipliers  = np.linspace(0.80, 1.40, self.n_actions)
-        self.action_space       = spaces.Discrete(self.n_actions)
+        self.observation_space = spaces.Box(low=0.0, high=1.0,
+                                            shape=(n_obs,), dtype=np.float32)
+        self.n_actions         = 25
+        self.price_multipliers = np.linspace(0.80, 1.40, self.n_actions)
+        self.action_space      = spaces.Discrete(self.n_actions)
 
+        # Market parameters
         self.base_adr        = float(self.df['adr'].mean())
         self.base_demand     = float(self.df['occupancy'].mean() * 100)
         self.elasticity      = -0.8
         self.cost_ratio      = 0.60
         self.hotel_capacity  = 100
 
-        typical_profit           = (self.base_adr * (1 - self.cost_ratio)) * self.base_demand
-        self.occ_penalty_scale   = occ_penalty_weight * typical_profit
+        typical_profit         = (self.base_adr * (1 - self.cost_ratio)) * self.base_demand
+        self.occ_penalty_scale = occ_penalty_weight * typical_profit
 
-        # Running stats for reward normalisation (Welford online algorithm)
-        self._reward_count   = 0
-        self._reward_mean    = 0.0
-        self._reward_M2      = 0.0
+        # ---------------------------------------------------------------
+        # PERFORMANCE FIX: preload all columns as numpy arrays
+        # Eliminates pandas .iloc overhead on every env step.
+        # This is the main CPU bottleneck at ~25-48% GPU utilization.
+        # ---------------------------------------------------------------
+        self._arr_competitor_price = self.df['competitor_price'].to_numpy(dtype=np.float32)
+        self._arr_demand_index     = self.df['demand_index'].to_numpy(dtype=np.float32)
+        self._arr_holiday_flag     = self.df['holiday_flag'].to_numpy(dtype=np.float32)
+        self._arr_day_of_week      = self.df['day_of_week'].to_numpy(dtype=np.float32)
+        self._arr_occupancy        = self.df['occupancy'].to_numpy(dtype=np.float32)
+
+        if state_variant == '8d':
+            self._arr_lead_time        = self.df['lead_time'].to_numpy(dtype=np.float32)
+            self._arr_days_until_event = self.df['days_until_event'].to_numpy(dtype=np.float32)
+            self._arr_customer_rating  = self.df['customer_rating'].to_numpy(dtype=np.float32)
+
+        # Reward normalisation state (Welford online algorithm)
+        self._reward_count = 0
+        self._reward_mean  = 0.0
+        self._reward_M2    = 0.0
 
         self.current_step: int = 0
         self._rng = np.random.default_rng(seed)
@@ -75,6 +96,7 @@ class HotelPricingEnv(gym.Env):
               f"reward={reward_variant} | normalise={normalise_reward} | "
               f"rows={len(self.df):,}")
 
+    # ---------------------------------------------------------------- validate
     def _validate_data(self):
         required = ['adr', 'occupancy', 'competitor_price',
                     'demand_index', 'holiday_flag', 'day_of_week']
@@ -86,8 +108,8 @@ class HotelPricingEnv(gym.Env):
         if self.df['competitor_price'].max() < 100:
             raise ValueError("competitor_price looks normalised — pass denormalised CSV")
 
+    # --------------------------------------------------------- reward stats
     def _update_reward_stats(self, r: float):
-        """Welford online mean/variance for reward normalisation."""
         self._reward_count += 1
         delta              = r - self._reward_mean
         self._reward_mean += delta / self._reward_count
@@ -98,25 +120,31 @@ class HotelPricingEnv(gym.Env):
             return 1.0
         return float(np.sqrt(self._reward_M2 / (self._reward_count - 1)) + 1e-8)
 
+    # ------------------------------------------------------------------ obs
     def _get_obs(self) -> np.ndarray:
-        row       = self.df.iloc[self.current_step]
-        comp_norm = np.clip(float(row['competitor_price']) / self.base_adr, 0.0, 1.0)
+        i         = self.current_step
+        comp_norm = np.clip(self._arr_competitor_price[i] / self.base_adr, 0.0, 1.0)
+
         obs = [
-            np.clip(float(row['demand_index']), 0.0, 1.0),
-            np.clip(float(row['occupancy']),    0.0, 1.0),
-            float(row['holiday_flag']),
-            np.clip(float(row['day_of_week']),  0.0, 1.0),
+            np.clip(self._arr_demand_index[i], 0.0, 1.0),
+            np.clip(self._arr_occupancy[i],    0.0, 1.0),
+            self._arr_holiday_flag[i],
+            np.clip(self._arr_day_of_week[i],  0.0, 1.0),
             comp_norm,
         ]
+
         if self.state_variant == '8d':
             obs += [
-                np.clip(float(row['lead_time']),        0.0, 1.0),
-                np.clip(float(row['days_until_event']), 0.0, 1.0),
-                np.clip(float(row['customer_rating']),  0.0, 1.0),
+                np.clip(self._arr_lead_time[i],        0.0, 1.0),
+                np.clip(self._arr_days_until_event[i], 0.0, 1.0),
+                np.clip(self._arr_customer_rating[i],  0.0, 1.0),
             ]
+
         return np.array(obs, dtype=np.float32)
 
+    # --------------------------------------------------------------- demand
     def compute_demand(self, price, comp_price, demand_idx, holiday) -> float:
+        """Elasticity demand model. Public so baselines can call it directly."""
         price_ratio  = price / comp_price
         elas_effect  = 1.0 + self.elasticity * (price_ratio - 1.0)
         market_mult  = 0.6 + 0.8 * demand_idx
@@ -124,11 +152,12 @@ class HotelPricingEnv(gym.Env):
         demand       = self.base_demand * elas_effect * market_mult * holiday_mult
         return float(np.clip(demand, 0.0, self.hotel_capacity))
 
+    # ----------------------------------------------------------------- step
     def step(self, action: int):
-        row        = self.df.iloc[self.current_step]
-        comp_price = float(row['competitor_price'])
-        demand_idx = float(row['demand_index'])
-        holiday    = float(row['holiday_flag'])
+        i          = self.current_step
+        comp_price = float(self._arr_competitor_price[i])
+        demand_idx = float(self._arr_demand_index[i])
+        holiday    = float(self._arr_holiday_flag[i])
 
         price     = comp_price * self.price_multipliers[action]
         demand    = self.compute_demand(price, comp_price, demand_idx, holiday)
@@ -141,7 +170,6 @@ class HotelPricingEnv(gym.Env):
             excess  = occupancy - self.occ_cap
             reward -= self.occ_penalty_scale * (excess / (1.0 - self.occ_cap))
 
-        # Running-std normalisation (only during training; eval uses raw profit)
         if self.normalise_reward:
             self._update_reward_stats(reward)
             reward = reward / self._reward_std()
@@ -152,22 +180,28 @@ class HotelPricingEnv(gym.Env):
                       else np.zeros(self.observation_space.shape, dtype=np.float32))
 
         info = {
-            'price': price, 'price_ratio': price / comp_price,
-            'comp_price': comp_price, 'demand': demand,
-            'profit': profit,          # always raw INR for logging
-            'occupancy': occupancy,
-            'demand_index': demand_idx, 'holiday': holiday,
+            'price':        price,
+            'price_ratio':  price / comp_price,
+            'comp_price':   comp_price,
+            'demand':       demand,
+            'profit':       profit,   # always raw INR
+            'occupancy':    occupancy,
+            'demand_index': demand_idx,
+            'holiday':      holiday,
             'state_variant': self.state_variant,
         }
         return obs, reward, terminated, False, info
 
+    # ---------------------------------------------------------------- reset
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         max_start         = max(1, len(self.df) - self.episode_length)
         self.current_step = int(self._rng.integers(0, max_start))
         return self._get_obs(), {}
 
+    # --------------------------------------------------------------- render
     def render(self):
-        row = self.df.iloc[self.current_step]
-        print(f"Step {self.current_step:5d} | demand={row['demand_index']:.2f} | "
-              f"comp={row['competitor_price']:.0f} INR | holiday={int(row['holiday_flag'])}")
+        i = self.current_step
+        print(f"Step {i:5d} | demand={self._arr_demand_index[i]:.2f} | "
+              f"comp={self._arr_competitor_price[i]:.0f} INR | "
+              f"holiday={int(self._arr_holiday_flag[i])}")

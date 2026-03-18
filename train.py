@@ -141,11 +141,11 @@ def _make_sac(env, log_dir: str) -> SAC:
         learning_rate=3e-4,
         buffer_size=100_000,
         learning_starts=5_000,
-        batch_size=256,
+        batch_size=512,
         tau=0.005,
         gamma=0.99,
         train_freq=4,
-        gradient_steps=4,
+        gradient_steps=8,
         ent_coef='auto',     # automatic entropy tuning (key SAC feature)
         policy_kwargs={
             'net_arch': [256, 256, 128],
