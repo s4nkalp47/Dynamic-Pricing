@@ -49,23 +49,28 @@ the signal. This repo trains on **raw profit only**, then evaluates fairly:
 
 The 8D experiment uses features already present in the data that prior work ignored.
 
----
-
 ## Project Structure
-├── src/
-│   ├── envs/hotel_env.py           # Gymnasium environment (5D + 8D state)
-│   ├── agents/baselines.py         # TraditionalOptimizer, FixedMatch, FixedUndercut
-│   └── evaluation/
-│       ├── evaluator.py            # Shared evaluation engine
-│       ├── stats.py                # Wilcoxon tests, robustness table
-│       └── plots.py                # All figures
-├── data/
-│   └── enhanced_data_fixed.csv
-├── train.py
-├── evaluate.py
-└── requirements.txt
----
 
+```
+Dynamic-Pricing/
+├── src/
+│   ├── envs/
+│   │   └── hotel_env.py          # Gymnasium environment (5D + 8D state variants)
+│   ├── agents/
+│   │   └── baselines.py          # TraditionalOptimizer, FixedMatch, FixedUndercut
+│   └── evaluation/
+│       ├── evaluator.py          # Shared evaluation engine
+│       ├── stats.py              # Wilcoxon signed-rank tests, 95% CI, robustness table
+│       └── plots.py              # Learning curves, heatmaps, comparison figures
+├── data/
+│   └── enhanced_data_fixed.csv   # 119,210 rows × 13 columns of hotel booking data
+├── results/                      # Generated figures and CSV summaries (after evaluate.py)
+├── models/                       # Saved model checkpoints (after train.py)
+├── logs/                         # TensorBoard training logs
+├── train.py                      # Train all algorithm variants
+├── evaluate.py                   # Evaluate models and generate figures
+└── requirements.txt
+```
 ## Setup
 
 ```bash
