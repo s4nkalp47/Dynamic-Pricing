@@ -1,8 +1,0 @@
-Method,vs Reference,Mean Δ Profit,Wilcoxon stat,p-value,Significant,Direction
-DQN,Traditional Opt.,-1873.3,66.0,0.1536,False,worse
-Double DQN,Traditional Opt.,357052.7,91.0,0.6215,False,better
-Dueling DQN,Traditional Opt.,222875.4,102.0,0.9273,False,better
-PPO,Traditional Opt.,-848.3,94.0,0.7012,False,worse
-SAC,Traditional Opt.,-3467.8,51.0,0.0441,True,worse
-Fixed Match,Traditional Opt.,-3337.4,52.0,0.0484,True,worse
-Fixed Undercut,Traditional Opt.,-2359.8,51.0,0.0441,True,worse
