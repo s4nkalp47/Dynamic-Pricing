@@ -6,21 +6,31 @@ optimizers with statistical significance testing and robustness analysis.
 
 ---
 
-## Key Results
+### Results
 
-| Agent | Mean Profit | vs Oracle | p-value |
-|---|---|---|---|
-| SAC | — | — | — |
-| PPO | — | — | — |
-| Dueling DQN | — | — | — |
-| Double DQN | — | — | — |
-| DQN | — | — | — |
-| Traditional Optimizer (oracle) | — | baseline | — |
+![Performance Comparison](results/fig1_performance.png)
 
-> Fill in after running `evaluate.py`. DQN achieves statistical parity with the
-> perfect-information oracle with no demand modeling, and retains 90%+ performance
-> under demand shifts that degrade the oracle by 15–25%.
+| Method | Mean Profit (INR) | 95% CI | Mean Revenue (INR) | vs Oracle |
+|---|---|---|---|---|
+| Traditional Opt. *(oracle)* | 7,667 | 5,589 – 9,744 | 12,570 | baseline |
+| PPO | 6,818 | 5,560 – 8,077 | 12,098 | -11.1% |
+| DQN | 5,794 | 4,529 – 7,058 | 10,814 | -24.4% |
+| Fixed Undercut | 5,307 | 2,589 – 8,025 | 12,725 | -30.8% |
+| SAC | 4,199 | 1,603 – 6,795 | 13,913 | -45.2% |
+| Fixed Match | 4,329 | 2,078 – 6,581 | 12,324 | -43.5% |
 
+> Double DQN and Dueling DQN results excluded — exploding profit values indicate
+> a training instability bug (likely a missing reward normalization or target network
+> update issue). Fix in progress.
+
+**PPO comes closest to the oracle**, reaching 88.9% of oracle profit while generating
+comparable revenue — suggesting it learns a near-optimal pricing policy without
+access to the demand model the oracle uses.
+
+**SAC achieves the highest revenue (13,913 INR) but lowest profit**, indicating it
+learns an occupancy-maximizing policy (avg. 3.83 occupancy) at the cost of underpricing.
+This is consistent with SAC's entropy regularization encouraging aggressive exploration
+of the action space.
 ---
 
 ## What this project does
