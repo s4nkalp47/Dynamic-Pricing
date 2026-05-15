@@ -5,10 +5,9 @@ optimize hotel room pricing against real booking data. Benchmarked against tradi
 optimizers with statistical significance testing and robustness analysis.
 
 ---
-
 ### Results
 
-
+![Performance Comparison](results/fig1_performance.png)
 
 | Method | Mean Profit (INR) | 95% CI | Mean Revenue (INR) | vs Oracle |
 |---|---|---|---|---|
