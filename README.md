@@ -52,3 +52,53 @@ The 8D experiment uses features already present in the data that prior work igno
 ---
 
 ## Project Structure
+├── src/
+│   ├── envs/hotel_env.py           # Gymnasium environment (5D + 8D state)
+│   ├── agents/baselines.py         # TraditionalOptimizer, FixedMatch, FixedUndercut
+│   └── evaluation/
+│       ├── evaluator.py            # Shared evaluation engine
+│       ├── stats.py                # Wilcoxon tests, robustness table
+│       └── plots.py                # All figures
+├── data/
+│   └── enhanced_data_fixed.csv
+├── train.py
+├── evaluate.py
+└── requirements.txt
+---
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Usage
+
+```bash
+# Train all 5 algorithms (DQN variants + PPO + SAC)
+python train.py --data data/enhanced_data_fixed.csv
+
+# DQN variants only
+python train.py --data data/enhanced_data_fixed.csv --dqn_only
+
+# Also run 8D state experiment and reward ablation
+python train.py --data data/enhanced_data_fixed.csv --ablation --experiment_8d
+
+# Evaluate and generate all figures
+python evaluate.py --data data/enhanced_data_fixed.csv --episodes 20 --robustness
+
+# Monitor training
+tensorboard --logdir logs/
+```
+
+---
+
+## Experiments
+
+1. **Algorithm comparison** — DQN vs Double DQN vs Dueling DQN vs PPO vs SAC vs baselines
+2. **8D state experiment** — expanded state with lead time, event proximity, customer rating
+3. **Reward ablation** — raw profit vs occupancy-capped reward
+4. **Robustness sweep** — all agents evaluated across 5 demand elasticity values
+5. **Statistical tests** — Wilcoxon signed-rank, 95% CI on all pairwise comparisons
